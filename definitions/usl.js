@@ -18,14 +18,13 @@ export default {
         },
         qNullSuppression: true,
       },
-      // {
-      //   qDef: {
-      //     qFieldDefs: ['SchoolProfiles_Handle Name'],
-      //     qFieldLabels: ['slug'],
-      //     qSortCriterias: [{ qSortByLoadOrder: 0, qSortByAscii: 1 }],
-      //   },
-      //   qNullSuppression: true,
-      // },
+      {
+        qDef: {
+          qFieldDefs: ['slug_report'],
+          qFieldLabels: ['slugReport'],
+        },
+        qNullSuppression: false,
+      },
       {
         qDef: {
           qFieldDefs: ['ULCS Code'],

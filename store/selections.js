@@ -62,7 +62,7 @@ export const actions = {
     { field, selections }
   ) {
     commit('set_current_selections_in_field', { field, selections })
-    // console.log('set_current_selections_in_field', field, selections)
+    console.log('set_current_selections_in_field', field, selections)
     // for the special case where this is the "schoolReport" and a single item is selected set the value in the state
     if (state.schoolReport_fields.includes(field)) {
       if (selections.length === 1) {
