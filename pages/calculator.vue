@@ -46,7 +46,7 @@
                 Reset
               </button>
             </div>
-            <div class="bg-gray-200 p-2">
+            <div class="bg-gray-200 p-2 w-full">
               <div class="flex justify-center">
                 <content-button
                   @click="
@@ -226,6 +226,7 @@ export default {
           const isEthnicity =
             this.metricValues?.isEthnicity[index]?.number || false
           if (isEthnicity) {
+            subgroup.subgroupType = 'ETHNICITY'
             metrics[pIndex].ETHNICITY.push(subgroup)
           } else if (text !== 'All') {
             // is this one of the other subgroups
@@ -233,6 +234,7 @@ export default {
               this.metricValues?.studentGroupCode[index]?.text || ''
             const sgIndex = subgroupTypes.indexOf(subgroupName)
             if (sgIndex >= 0) {
+              subgroup.subgroupType = subgroupName
               metrics[pIndex][subgroupTypes[sgIndex]].push(subgroup)
             }
           }
@@ -263,6 +265,7 @@ export default {
               targetApproaching: metric.targetApproaching,
               targetAbove: metric.targetAbove,
               isSuppressed: false,
+              subgroupType,
             }
             metric[subgroupType].push(subgroup)
           }
@@ -381,9 +384,10 @@ export default {
       newNumerator,
       metric,
       overallMetric,
-      ignoreSubgroups,
+      ignoreSubgroupType,
       ignoreNesting
     ) {
+      /// / update the selected metric, which could be at the overall level or a subgroup
       const numerator = metric.numerator
       const dNumerator = newNumerator - numerator
       // how many are not in the numerator?
@@ -391,115 +395,154 @@ export default {
       metric.numerator = newNumerator
       metric.score = metric.numerator / metric.denominator
       metric.changed = true
-      // if this is an overall metric, adjust submetrics
-      if (!ignoreSubgroups && metric?.ETHNICITY) {
+
+      /// / if this is an overall metric (can tell if it has an ETHNICITY array), adjust submetrics
+      if (metric?.ETHNICITY) {
         // distribute numerator change proportionally to each subgroup
-        // if adding to numerator, what percent of not-in-numerator is this group
-        // if taking away from numerator, what percent of numerator is this group
-        // keep track of how many have been distributed
+        // if adding to numerator, what percent of not-in-numerator (invNumerator) is this group's invNumerator
+        // if subtracting from numerator, what percent of numerator is this group's numerator
+        // keep track of how many have been distributed, apply the remainder to "Other"
         subgroupTypes.forEach((subgroupType) => {
-          let dNumeratorAcc = 0
-          metric[subgroupType].forEach((subgroup) => {
-            if (!subgroup.isSuppressed && subgroup.id !== 'Other') {
-              const remainder = dNumerator - dNumeratorAcc
-              // what percent of total group's remainder or numerator is this child metric
-              const proportion =
-                dNumerator > 0
-                  ? (subgroup.denominator - subgroup.numerator) / invNumerator
-                  : subgroup.numerator / numerator
-              // when sliding the numbers may be too small to actually change the value
-              // so randomly give a 1 or -1 based on proportion
-              const dSubgroupNumerator =
-                dNumerator > 0
-                  ? Math.min(
-                      remainder,
-                      Math.max(
-                        Math.random() < proportion ? 1 : 0,
-                        Math.round(proportion * dNumerator)
+          // when we first adjust a particular subgroup type, and this bubbles up to overall, we don't want to then re-adjust it's subgroup again
+          if (!ignoreSubgroupType || ignoreSubgroupType !== subgroupType) {
+            let dNumeratorAcc = 0
+            metric[subgroupType].forEach((subgroup) => {
+              if (!subgroup.isSuppressed && subgroup.id !== 'Other') {
+                const remainder = dNumerator - dNumeratorAcc
+                // what percent of total group's remainder or numerator is this child metric
+                const proportion =
+                  dNumerator > 0
+                    ? (subgroup.denominator - subgroup.numerator) / invNumerator
+                    : subgroup.numerator / numerator
+                // when sliding the numbers may be too small to actually change the value
+                // so randomly give a 1 or -1 based on proportion
+                const dSubgroupNumerator =
+                  dNumerator > 0
+                    ? Math.min(
+                        remainder,
+                        Math.max(
+                          Math.random() < proportion ? 1 : 0,
+                          Math.round(proportion * dNumerator)
+                        )
                       )
-                    )
-                  : Math.max(
-                      remainder,
-                      Math.min(
-                        Math.random() < proportion ? -1 : 0,
-                        Math.round(proportion * dNumerator)
+                    : Math.max(
+                        remainder,
+                        Math.min(
+                          Math.random() < proportion ? -1 : 0,
+                          Math.round(proportion * dNumerator)
+                        )
                       )
-                    )
-              dNumeratorAcc += dSubgroupNumerator
-              // if (!dNumeratorAcc)
-              //   console.log('bust', d, dNumerator, remainder, invNumerator)
-              subgroup.numerator =
-                parseFloat(subgroup.numerator) + dSubgroupNumerator
-              subgroup.score = subgroup.numerator / subgroup.denominator
-              subgroup.changed = true
-            }
-          })
-          // give the rest to other
-          metric[subgroupType]
-            .filter(({ id }) => id === 'Other')
-            .forEach((subgroup) => {
-              // const n = subgroup.numerator
-              subgroup.numerator =
-                parseFloat(subgroup.numerator) + dNumerator - dNumeratorAcc
-              subgroup.score = subgroup.numerator / subgroup.denominator
-              subgroup.changed = true
-              // console.log('d', n, dNumerator, dNumeratorAcc, subgroup.numerator)
+                dNumeratorAcc += dSubgroupNumerator
+                subgroup.numerator =
+                  parseFloat(subgroup.numerator) + dSubgroupNumerator
+                subgroup.score = subgroup.numerator / subgroup.denominator
+                subgroup.changed = true
+              }
             })
+            // give the rest to other
+            metric[subgroupType]
+              .filter(({ id }) => id === 'Other')
+              .forEach((subgroup) => {
+                subgroup.numerator =
+                  parseFloat(subgroup.numerator) + dNumerator - dNumeratorAcc
+                subgroup.score = subgroup.numerator / subgroup.denominator
+                subgroup.changed = true
+              })
+          }
         })
       } else if (overallMetric) {
-        // call this, but with the ignoreSubgroup flag as true so that we don't get stuck in a loop
+        // If this is a submetric (and the overallMetric is given as a parameter)
+        // recursively call this function, but with the ignoreSubgroupType set to the current subgroup so that we don't get stuck in a loop
         this.updateMetricNumerator(
           parseFloat(overallMetric.numerator) + dNumerator,
           overallMetric,
           null,
-          true
+          metric.subgroupType, // do not let parent redistribute it's numbers to this subgroup
+          true // do not let the parent distribute it's changes to any nested metrics, we'll do that directly to ensure that changes go to the correct subgroup
         )
       }
 
       if (!ignoreNesting) {
         // check if there are nested sub-metrics for this metric, if so distribute the change to this submetric
-        if (Object.keys(metricNesting).includes(metric.id)) {
-          metricNesting[metric.id].forEach((childMetricId) => {
-            const childMetric = this.userMetrics
-              .filter(({ id }) => id === childMetricId)
-              .pop()
-            // what percent of total group's remainder or numerator is this child metric
-            const proportion =
-              dNumerator > 0
-                ? (childMetric.denominator - childMetric.numerator) /
-                  invNumerator
-                : childMetric.numerator / numerator
-            // when sliding the numbers may be too small to actually change the value
-            // so randomly give a 1 or -1 based on proportion
-            const dChildNumerator =
-              dNumerator > 0
-                ? Math.max(
-                    Math.random() < proportion ? 1 : 0,
-                    Math.round(proportion * dNumerator)
-                  )
-                : Math.min(
-                    Math.random() < proportion ? -1 : 0,
-                    Math.round(proportion * dNumerator)
-                  )
-            this.updateMetricNumerator(
-              childMetric.numerator + dChildNumerator,
-              childMetric
-            )
+        if (
+          Object.keys(metricNesting).includes(overallMetric?.id || metric.id)
+        ) {
+          metricNesting[overallMetric?.id || metric.id].forEach(
+            (childMetricId) => {
+              let childMetric = this.userMetrics
+                .filter(({ id }) => id === childMetricId)
+                .pop()
+              let childOverallMetric = null
+              // if this a subgroup metric, aim the childMetric at the nested metric's equivalent subgroup
+              // and repoint the overall child metric
+              if (overallMetric) {
+                childOverallMetric = childMetric
+                childMetric = childMetric[metric.subgroupType]
+                  .filter(({ label }) => label === metric.label)
+                  .pop()
+              }
+              // what percent of total group's remainder or numerator is this child metric
+              const proportion =
+                dNumerator > 0
+                  ? (childMetric.denominator - childMetric.numerator) /
+                    invNumerator
+                  : childMetric.numerator / numerator
+              // when sliding the numbers may be too small to actually change the value
+              // so randomly give a 1 or -1 based on proportion
+              const dChildNumerator =
+                dNumerator > 0
+                  ? Math.max(
+                      Math.random() < proportion ? 1 : 0,
+                      Math.round(proportion * dNumerator)
+                    )
+                  : Math.min(
+                      Math.random() < proportion ? -1 : 0,
+                      Math.round(proportion * dNumerator)
+                    )
+
+              this.updateMetricNumerator(
+                childMetric.numerator + dChildNumerator,
+                childMetric,
+                childOverallMetric,
+                null,
+                true
+              )
+            }
+          )
+        } else {
+          // check if this metric is a sub-metric of another metric, if so bubble the changes to the parent
+          // if this is a subgroup change make sure to change that value first
+          let parentMetric = null
+          Object.keys(metricNesting).forEach((parentMetricId) => {
+            if (
+              metricNesting[parentMetricId].includes(
+                overallMetric?.id || metric.id
+              )
+            ) {
+              parentMetric = this.userMetrics
+                .filter(({ id }) => id === parentMetricId)
+                .pop()
+            }
           })
-        }
-        // check if this metric is a sub-metric of another metric, if so bubble the chanes to the parent
-        // if this is a subgroup change make sure to change that value first
-        let parentMetric = null
-        Object.keys(metricNesting).forEach((parentMetricId) => {
-          if (metricNesting[parentMetricId].includes(metric.id)) {
-            parentMetric = this.userMetrics
-              .filter(({ id }) => id === parentMetricId)
-              .pop()
+          if (parentMetric) {
+            let parentOverallMetric = null
+            // if this a subgroup metric, aim the parentMetric at the parent metric's equivalent subgroup
+            // and repoint the overall parent metric
+            if (overallMetric) {
+              parentOverallMetric = parentMetric
+              parentMetric = parentMetric[metric.subgroupType]
+                .filter(({ label }) => label === metric.label)
+                .pop()
+            }
+            const x = parentMetric.numerator + dNumerator
+            this.updateMetricNumerator(
+              x,
+              parentMetric,
+              parentOverallMetric,
+              null,
+              true
+            )
           }
-        })
-        if (parentMetric) {
-          const x = parentMetric.numerator + dNumerator
-          this.updateMetricNumerator(x, parentMetric, null, false, true)
         }
       }
     },

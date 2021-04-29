@@ -1,5 +1,6 @@
 // const setCY = `{<[use_in_overall_score]={1}, [SchoolReportKey]={'${schoolReportKey}'}, [School Year]={'$(v_cy)'}>}`
 // const setPY = `{<[use_in_any_score]={1}, [SchoolReportKey]={'${schoolReportKey}'}, [School Year]={'$(v_py)'}>}`
+// ,'ATTENDANCE_95', 'ATTENDANCE_90'
 const setPY = `{<[metric_code]={'PSSA_ELA_PROF','PSSA_ELA_PROF_GRADE3','PSSA_MATH_PROF'}, [use_in_any_score]={1}, [School Year]={'$(v_py)'}>}`
 
 const qDimensions = [
